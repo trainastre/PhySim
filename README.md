@@ -1,6 +1,6 @@
 # PhySim - 2D Fluid Simulation Engine
 
-PhySim is a high-performance, modular 2D fluid dynamics engine implemented in JavaScript. It solves the incompressible Navier-Stokes equations using Eulerian grid-based techniques (Jos Stam's Stable Fluids formulation) with Gauss-Seidel pressure projection, semi-Lagrangian advection, and arbitrary solid boundary condition support.
+PhySim is a high-performance, modular 2D fluid dynamics engine implemented in JavaScript. It solves the incompressible Navier-Stokes equations using Eulerian grid-based techniques (Jos Stam's Stable Fluids formulation) with Gauss-Seidel pressure projection, semi-Lagrangian advection, arbitrary solid boundary condition support, and an interactive real-time HTML5 Canvas rendering pipeline.
 
 ## Key Features
 
@@ -10,26 +10,47 @@ PhySim is a high-performance, modular 2D fluid dynamics engine implemented in Ja
 * **Flexible Boundary Conditions**:
   * Free-slip and no-slip domain wall boundaries.
   * Solid internal obstacles (boxes, circles, arbitrary shapes) with zero-penetration and Neumann scalar/pressure conditions.
-* **Decoupled Engine Architecture**: Fully headless core engine with zero DOM, Canvas, or WebGL dependencies. Compatible with Node.js, Web Workers, and browser environments.
+* **Real-Time HTML5 Canvas Rendering Pipeline**:
+  * Offscreen buffer rasterization with hardware-accelerated bilinear upscaling.
+  * Responsive viewport scaling across desktop, tablet, and mobile displays.
+  * Multi-palette color mapping (Fire, Ocean Cyan, Turbo Spectrum, Inferno, Neon, Greyscale).
+  * Multiple render modes: Fluid Density, Velocity Speed Gradient, 360° Flow Direction Wheel, Pressure, and Divergence.
+  * Vector glyph overlay for visualizing flow streamlines.
+* **Interactive Web Interface**:
+  * Sliders for modifying core parameters instantly (Viscosity, Gravity / Buoyancy, Density Dissipation, Diffusion, Vorticity, Solver Iterations).
+  * Direct mouse and multi-touch gestures (Pointer Events) to draw fluid, inject momentum impulses, or build solid obstacles.
+  * Built-in physics presets: Smoke Plume, Karman Vortex Street, Swirling Vortices, Zero-G Expansion.
+* **Decoupled Engine Architecture**: Fully headless core engine with zero mandatory DOM dependencies. Compatible with Node.js, Web Workers, and browser environments.
 
 ## Architecture
 
 ```
 PhySim/
+├── index.html                       # HTML5 Interactive Web Application
 ├── src/
 │   ├── index.js                     # Main entry point & API exports
 │   ├── core/
 │   │   ├── FluidGrid.js             # Contiguous Float32Array grid memory
-│   │   ├── FluidSolver.js           # Navier-Stokes physics solver (advect, diffuse, project)
+│   │   ├── FluidSolver.js           # Navier-Stokes physics solver (advect, diffuse, project, dissipate)
 │   │   ├── FluidSimulation.js       # High-level simulation engine & interaction layer
 │   │   ├── BoundaryConditions.js    # Edge and solid obstacle boundary solvers
 │   │   └── Advection.js             # Semi-Lagrangian advection and interpolation
+│   ├── rendering/
+│   │   ├── FluidRenderer.js         # Real-time HTML5 2D Canvas rendering pipeline
+│   │   ├── ColorMaps.js             # Precomputed 256-entry RGBA LUT palettes & HSV conversion
+│   │   └── index.js                 # Renderer exports
+│   ├── ui/
+│   │   ├── app.js                   # Web application controller, event listeners & presets
+│   │   └── style.css                # Responsive glassmorphic layout & viewport styling
 │   └── utils/
 │       └── MathUtils.js             # Clamping, lerp, and bilinear sampling
 ├── test/
 │   ├── FluidSolver.test.js          # Numerical stability, convergence, and field tests
 │   ├── BoundaryConditions.test.js   # Wall restriction, obstacle collision tests
-│   └── run-tests.js                 # Standalone test runner
+│   ├── FluidRenderer.test.js        # Rendering pipeline, color mapping, and scaling tests
+│   └── run-tests.js                 # Node.js standalone test runner
+├── tests/
+│   └── test_physim.py               # Python/pytest test integration
 └── examples/
     └── headless-simulation.js       # Headless usage example
 ```
@@ -45,6 +66,19 @@ git clone <repo-url>
 cd PhySim
 ```
 
+### Launching the Web Interface
+
+Open `index.html` directly in any modern browser, or start a local static server:
+
+```bash
+# Using Python
+python -m http.server 8000
+
+# Or using Node.js
+npx serve .
+```
+Navigate to `http://localhost:8000` to interact with the fluid simulation in real time.
+
 ### Running Tests
 
 ```bash
@@ -59,17 +93,21 @@ node test/run-tests.js
 node examples/headless-simulation.js
 ```
 
-### Basic Usage
+## Usage Example
+
+### Headless Physics Simulation
 
 ```javascript
-import { FluidSimulation } from 'physim';
+import { FluidSimulation } from './src/index.js';
 
-// 1. Initialize simulation grid
+// 1. Initialize simulation grid with core parameters
 const sim = new FluidSimulation({
   width: 64,
   height: 64,
   viscosity: 0.0001,
   diffusion: 0.00001,
+  densityDissipation: 0.005,
+  gravityY: -9.8, // Buoyancy
   solverIterations: 25,
 });
 
@@ -84,15 +122,37 @@ sim.addVelocityImpulse(32, 50, 5, 0, -25.0); // push upwards towards obstacle
 const dt = 0.016; // 60 FPS
 sim.step(dt);
 
-// 5. Access raw Float32Array buffers for custom renderers (Canvas2D, WebGL, etc.)
+// 5. Access raw Float32Array buffers for custom renderers
 const densityBuffer = sim.getDensityBuffer();
 const { u, v } = sim.getVelocityBuffers();
-const pressureBuffer = sim.getPressureBuffer();
 const obstacles = sim.getObstacleBuffer();
+```
 
-// 6. Inspect physical diagnostics
-const stats = sim.getDiagnostics();
-console.log(`Max divergence: ${stats.maxDivergence}, Max speed: ${stats.maxSpeed}`);
+### Canvas Rendering Pipeline
+
+```javascript
+import { FluidSimulation, FluidRenderer, RenderMode, ColorPalette } from './src/index.js';
+
+const canvas = document.getElementById('fluid-canvas');
+const sim = new FluidSimulation({ width: 64, height: 64 });
+const renderer = new FluidRenderer(canvas, sim, {
+  renderMode: RenderMode.VELOCITY, // Visualizes velocity speed gradients
+  colorPalette: ColorPalette.TURBO,
+  showVectors: true,
+});
+
+// Real-time loop
+function animate() {
+  sim.step(0.016);
+  renderer.render();
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+// Instant dynamic adjustments
+sim.viscosity = 0.002;
+sim.densityDissipation = 0.01;
+sim.gravityY = 9.8;
 ```
 
 ## Physics & Numerical Methods
@@ -112,7 +172,11 @@ $$\nabla^2 p = \nabla \cdot \mathbf{u}^*$$
 $$\mathbf{u} = \mathbf{u}^* - \nabla p$$
 The Poisson equation is solved efficiently using Gauss-Seidel relaxation with boundary reflection conditions.
 
-### 3. Boundary Conditions
+### 3. Density Dissipation
+$$\frac{\partial \rho}{\partial t} = -\lambda \rho \implies \rho(t + \Delta t) = \rho(t) e^{-\lambda \Delta t}$$
+Allows fluid smoke/dye to naturally dissipate over time according to user-selected dissipation rates.
+
+### 4. Boundary Conditions
 * **Solid Domain Walls**: Normal velocity component $u_n = 0$ prevents fluid from leaving the domain.
 * **Internal Obstacles**: Velocities on obstacle cells are set to zero, and fluid cells adjacent to walls have penetrating velocities blocked.
 * **Neumann Condition for Scalars**: Density and pressure have zero normal gradient ($\partial \phi / \partial n = 0$) across walls to conserve total fluid mass.

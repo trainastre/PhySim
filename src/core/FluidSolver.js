@@ -14,6 +14,7 @@ export class FluidSolver {
    * @param {Object} [options={}] - Simulation configuration parameters.
    * @param {number} [options.viscosity=0.0] - Kinematic viscosity of the fluid.
    * @param {number} [options.diffusion=0.0] - Diffusion coefficient for density/dye.
+   * @param {number} [options.densityDissipation=0.0] - Rate of scalar density dissipation/decay.
    * @param {number} [options.iterations=25] - Gauss-Seidel solver iteration count.
    * @param {string} [options.boundaryType=BoundaryType.FREE_SLIP] - Boundary condition mode.
    * @param {number} [options.gravityX=0.0] - Constant horizontal gravity/force.
@@ -28,6 +29,7 @@ export class FluidSolver {
     this.grid = grid;
     this.viscosity = options.viscosity ?? 0.0;
     this.diffusion = options.diffusion ?? 0.0;
+    this.densityDissipation = options.densityDissipation ?? 0.0;
     this.iterations = options.iterations ?? 25;
     this.boundaryType = options.boundaryType ?? BoundaryType.FREE_SLIP;
     this.gravityX = options.gravityX ?? 0.0;
@@ -49,7 +51,8 @@ export class FluidSolver {
    * 5. Pressure projection (enforce mass conservation after advection).
    * 6. Density diffusion.
    * 7. Density advection.
-   * 8. Boundary condition enforcement.
+   * 8. Density dissipation.
+   * 9. Boundary condition enforcement.
    * 
    * @param {number} [dt=0.016] - Time step in seconds.
    */
@@ -106,6 +109,14 @@ export class FluidSolver {
 
     // Scalar boundary condition for density
     BoundaryConditions.applyScalar(grid, density);
+
+    // Density dissipation (decay over time)
+    if (this.densityDissipation > 0) {
+      const decay = Math.exp(-this.densityDissipation * dt);
+      for (let i = 0; i < density.length; i++) {
+        density[i] *= decay;
+      }
+    }
 
     // Final boundary check on velocities
     BoundaryConditions.applyVelocity(grid, this.boundaryType);

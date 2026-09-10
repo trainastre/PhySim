@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PhySim - 2D Fluid Dynamics Simulation & Real-Time Canvas</title>
+  <link rel="stylesheet" href="src/ui/style.css">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header>
+    <div class="logo-area">
+      <div class="logo-badge">PS</div>
+      <div class="logo-title">
+        <h1>PhySim 2D</h1>
+        <p>Incompressible Navier-Stokes Fluid Dynamics</p>
+      </div>
+    </div>
+
+    <div class="header-stats">
+      <div class="stat-pill">
+        <span class="stat-label">FPS</span>
+        <span class="stat-value" id="stat-fps">60</span>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-label">Max Speed</span>
+        <span class="stat-value" id="stat-speed">0.0</span>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-label">Mass</span>
+        <span class="stat-value" id="stat-density">0</span>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-label">Max Div</span>
+        <span class="stat-value" id="stat-div">0.000</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Grid Layout -->
+  <main>
+    <!-- Viewport Area (Canvas) -->
+    <section class="viewport-section">
+      <div class="canvas-wrapper">
+        <canvas id="fluid-canvas" width="512" height="512"></canvas>
+      </div>
+      <div class="canvas-hint">
+        <span><kbd>Click + Drag</kbd> Splat Fluid & Impulses</span>
+        <span><kbd>Touch</kbd> Interactive on Mobile & Tablets</span>
+      </div>
+    </section>
+
+    <!-- Sidebar Controls -->
+    <aside class="controls-sidebar">
+      <!-- Core Parameter Sliders -->
+      <div class="control-group">
+        <div class="group-title">
+          <span>Core Parameters</span>
+          <span style="font-size: 0.65rem; color: var(--text-dim);">Live Sync</span>
+        </div>
+
+        <!-- Viscosity Slider -->
+        <div class="slider-item">
+          <div class="slider-header">
+            <span class="slider-label">Viscosity (&nu;)</span>
+            <span class="slider-value" id="viscosity-val">0.0001</span>
+          </div>
+          <input type="range" id="viscosity-slider" min="0.0000" max="0.0050" step="0.0001" value="0.0001">
+        </div>
+
+        <!-- Gravity Slider -->
+        <div class="slider-item">
+          <div class="slider-header">
+            <span class="slider-label">Gravity / Buoyancy (g)</span>
+            <span class="slider-value" id="gravity-val">-6.0</span>
+          </div>
+          <input type="range" id="gravity-slider" min="-20.0" max="20.0" step="0.5" value="-6.0">
+        </div>
+
+        <!-- Density Dissipation Slider -->
+        <div class="slider-item">
+          <div class="slider-header">
+            <span class="slider-label">Density Dissipation</span>
+            <span class="slider-value" id="dissipation-val">0.005</span>
+          </div>
+          <input type="range" id="dissipation-slider" min="0.000" max="0.050" step="0.001" value="0.005">
+        </div>
+
+        <!-- Diffusion Slider -->
+        <div class="slider-item">
+          <div class="slider-header">
+            <span class="slider-label">Diffusion Rate</span>
+            <span class="slider-value" id="diffusion-val">0.00001</span>
+          </div>
+          <input type="range" id="diffusion-slider" min="0.00000" max="0.00050" step="0.00001" value="0.00001">
+        </div>
+
+        <!-- Vorticity Confinement Slider -->
+        <div class="slider-item">
+          <div class="slider-header">
+            <span class="slider-label">Vorticity Confinement</span>
+            <span class="slider-value" id="vorticity-val">1.2</span>
+          </div>
+          <input type="range" id="vorticity-slider" min="0.0" max="4.0" step="0.1" value="1.2">
+        </div>
+
+        <!-- Solver Iterations Slider -->
+        <div class="slider-item">
+          <div class="slider-header">
+            <span class="slider-label">Solver Iterations</span>
+            <span class="slider-value" id="iterations-val">25</span>
+          </div>
+          <input type="range" id="iterations-slider" min="5" max="60" step="1" value="25">
+        </div>
+      </div>
+
+      <!-- Visualization Modes & Color Mapping -->
+      <div class="control-group">
+        <div class="group-title">Color Mapping & Render Mode</div>
+
+        <div class="select-row">
+          <label class="select-label" for="render-mode-select">Field Visualization</label>
+          <select id="render-mode-select">
+            <option value="density" selected>Fluid Density (Smoke / Dye)</option>
+            <option value="velocity">Velocity Speed Gradient (|u, v|)</option>
+            <option value="direction">Velocity Direction (360&deg; Flow Wheel)</option>
+            <option value="pressure">Pressure Field Gradient</option>
+            <option value="divergence">Discrete Divergence Field</option>
+          </select>
+        </div>
+
+        <div class="select-row">
+          <label class="select-label" for="color-palette-select">Color Palette</label>
+          <select id="color-palette-select">
+            <option value="fire" selected>Fire / Flame</option>
+            <option value="ocean">Ocean / Electric Cyan</option>
+            <option value="turbo">Turbo / Rainbow Spectrum</option>
+            <option value="inferno">Inferno Heatmap</option>
+            <option value="neon">Neon / Cyberpunk</option>
+            <option value="greyscale">Smoke Greyscale</option>
+          </select>
+        </div>
+
+        <label class="checkbox-row">
+          <span>Show Velocity Vector Arrows</span>
+          <input type="checkbox" id="vector-toggle">
+        </label>
+
+        <label class="checkbox-row">
+          <span>Smooth Texture Scaling</span>
+          <input type="checkbox" id="smooth-toggle" checked>
+        </label>
+      </div>
+
+      <!-- Interaction Tool Mode -->
+      <div class="control-group">
+        <div class="group-title">Pointer Interaction Mode</div>
+        <div class="tool-modes">
+          <div>
+            <input type="radio" id="tool-fluid" name="tool-mode" value="fluid" class="tool-radio-btn" checked>
+            <label for="tool-fluid" class="tool-label">Dye + Velocity</label>
+          </div>
+          <div>
+            <input type="radio" id="tool-vel" name="tool-mode" value="velocity" class="tool-radio-btn">
+            <label for="tool-vel" class="tool-label">Push Only</label>
+          </div>
+          <div>
+            <input type="radio" id="tool-obs" name="tool-mode" value="obstacle" class="tool-radio-btn">
+            <label for="tool-obs" class="tool-label">Draw Obstacle</label>
+          </div>
+          <div>
+            <input type="radio" id="tool-erase" name="tool-mode" value="erase" class="tool-radio-btn">
+            <label for="tool-erase" class="tool-label">Erase Obstacle</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preset Scenarios -->
+      <div class="control-group">
+        <div class="group-title">Preset Scenarios</div>
+        <div class="button-grid">
+          <button type="button" class="btn" id="preset-plume">Smoke Plume</button>
+          <button type="button" class="btn" id="preset-karman">Karman Vortex</button>
+          <button type="button" class="btn" id="preset-vortices">Dual Vortices</button>
+          <button type="button" class="btn" id="preset-zerog">Zero-G Splat</button>
+        </div>
+      </div>
+
+      <!-- Action Controls -->
+      <div class="control-group">
+        <div class="group-title">Simulation Controls</div>
+        <div class="button-grid">
+          <button type="button" class="btn btn-primary" id="pause-btn">Pause</button>
+          <button type="button" class="btn" id="step-btn">Step Frame</button>
+          <button type="button" class="btn btn-danger" id="reset-fluid-btn">Clear Fluid</button>
+          <button type="button" class="btn btn-danger" id="clear-obstacles-btn">Clear Obstacles</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="src/ui/app.js"></script>
+</body>
+</html>
