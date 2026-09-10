@@ -236,7 +236,7 @@ export class FluidSolver {
    * @param {Float32Array} div - Divergence scratch/storage buffer.
    */
   project(u, v, p, div) {
-    const { width, height, dx, solid, pressure, divergence } = this.grid;
+    const { width, height, dx, solid, pressure } = this.grid;
     const h = dx;
 
     // 1. Compute discrete divergence
@@ -315,6 +315,20 @@ export class FluidSolver {
 
     // Store computed pressure and true divergence in grid for external inspection
     pressure.set(p);
+    this.computeDivergence(u, v);
+    BoundaryConditions.applyVelocity(this.grid, this.boundaryType);
+  }
+
+  /**
+   * Computes discrete divergence of the velocity field across all fluid cells
+   * and updates the grid.divergence buffer.
+   * @param {Float32Array} [u=this.grid.u] - Horizontal velocity field.
+   * @param {Float32Array} [v=this.grid.v] - Vertical velocity field.
+   */
+  computeDivergence(u = this.grid.u, v = this.grid.v) {
+    const { width, height, dx, solid, divergence } = this.grid;
+    const invH2 = 0.5 / dx;
+
     for (let y = 1; y < height - 1; y++) {
       const row = y * width;
       for (let x = 1; x < width - 1; x++) {
@@ -322,12 +336,10 @@ export class FluidSolver {
         if (solid[idx] === 1) {
           divergence[idx] = 0;
         } else {
-          divergence[idx] = (u[idx + 1] - u[idx - 1] + v[idx + width] - v[idx - width]) * (0.5 / h);
+          divergence[idx] = (u[idx + 1] - u[idx - 1] + v[idx + width] - v[idx - width]) * invH2;
         }
       }
     }
-
-    BoundaryConditions.applyVelocity(this.grid, this.boundaryType);
   }
 
   /**
@@ -361,6 +373,7 @@ export class FluidSolver {
    * @returns {number} Maximum divergence magnitude.
    */
   getMaxDivergence() {
+    this.computeDivergence();
     const { width, height, divergence, solid } = this.grid;
     let maxDiv = 0;
     for (let y = 1; y < height - 1; y++) {
