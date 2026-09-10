@@ -85,7 +85,7 @@ Navigate to `http://localhost:8000` to interact with the fluid simulation in rea
 ### Running Tests
 
 ```bash
-npm test
+pytest tests/
 # or
 node test/run-tests.js
 ```
