@@ -248,6 +248,24 @@ export function runFluidRendererTests(assert) {
     assert.strictEqual(outside.x, 0, 'Outside left is clamped to 0');
     assert.strictEqual(outside.y, 31, 'Outside bottom is clamped to 31');
 
+    // Test clientToCanvas mapping
+    const canvasTopLeft = renderer.clientToCanvas(100, 200);
+    assert.strictEqual(canvasTopLeft.x, 0, 'Top-left maps to canvas X = 0');
+    assert.strictEqual(canvasTopLeft.y, 0, 'Top-left maps to canvas Y = 0');
+
+    const canvasCenter = renderer.clientToCanvas(500, 600);
+    assert.strictEqual(canvasCenter.x, 640, 'Center maps to canvas X = 640');
+    assert.strictEqual(canvasCenter.y, 640, 'Center maps to canvas Y = 640');
+
+    const canvasBtmRight = renderer.clientToCanvas(900, 1000);
+    assert.strictEqual(canvasBtmRight.x, 1280, 'Bottom-right maps to canvas X = 1280');
+    assert.strictEqual(canvasBtmRight.y, 1280, 'Bottom-right maps to canvas Y = 1280');
+
+    // Test canvasToGrid mapping
+    const fromCanvas = renderer.canvasToGrid(640, 640);
+    assert.strictEqual(Math.round(fromCanvas.x), 16, 'Canvas center converts to grid cell 16');
+    assert.strictEqual(Math.round(fromCanvas.y), 16, 'Canvas center converts to grid cell 16');
+
     console.log('  Passed: Canvas scaling and client-to-grid coordinate transforms adapt across viewports.');
   }
 }

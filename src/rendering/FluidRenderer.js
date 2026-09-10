@@ -202,6 +202,70 @@ export class FluidRenderer {
 
   /**
    * Maps client/screen coordinates (e.g. mouse or touch pointer event)
+   * to canvas coordinate space [0, canvas.width] x [0, canvas.height].
+   * Ensures accurate interaction regardless of viewport size or aspect ratio scaling.
+   * 
+   * @param {number} clientX - Screen X position.
+   * @param {number} clientY - Screen Y position.
+   * @returns {{ x: number, y: number }} Canvas pixel coordinates.
+   */
+  clientToCanvas(clientX, clientY) {
+    if (!this.canvas || !this.canvas.getBoundingClientRect) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = this.canvas.getBoundingClientRect();
+    const width = rect.width || 1;
+    const height = rect.height || 1;
+
+    const normalizedX = (clientX - rect.left) / width;
+    const normalizedY = (clientY - rect.top) / height;
+
+    const canvasWidth = this.canvas.width || width;
+    const canvasHeight = this.canvas.height || height;
+
+    const canvasX = clamp(normalizedX * canvasWidth, 0, canvasWidth);
+    const canvasY = clamp(normalizedY * canvasHeight, 0, canvasHeight);
+
+    return { x: canvasX, y: canvasY };
+  }
+
+  /**
+   * Maps canvas coordinates to discrete/continuous simulation grid cell coordinates.
+   * 
+   * @param {number} canvasX - Canvas X position.
+   * @param {number} canvasY - Canvas Y position.
+   * @returns {{ x: number, y: number }} Grid coordinates in cell units.
+   */
+  canvasToGrid(canvasX, canvasY) {
+    const canvasWidth = this.canvas ? (this.canvas.width || 1) : 1;
+    const canvasHeight = this.canvas ? (this.canvas.height || 1) : 1;
+
+    const gridX = clamp((canvasX / canvasWidth) * this.gridWidth, 0, this.gridWidth - 1);
+    const gridY = clamp((canvasY / canvasHeight) * this.gridHeight, 0, this.gridHeight - 1);
+
+    return { x: gridX, y: gridY };
+  }
+
+  /**
+   * Maps grid coordinates to canvas coordinates.
+   * 
+   * @param {number} gridX - Grid X position.
+   * @param {number} gridY - Grid Y position.
+   * @returns {{ x: number, y: number }} Canvas coordinates.
+   */
+  gridToCanvas(gridX, gridY) {
+    const canvasWidth = this.canvas ? (this.canvas.width || 1) : 1;
+    const canvasHeight = this.canvas ? (this.canvas.height || 1) : 1;
+
+    const canvasX = (gridX / this.gridWidth) * canvasWidth;
+    const canvasY = (gridY / this.gridHeight) * canvasHeight;
+
+    return { x: canvasX, y: canvasY };
+  }
+
+  /**
+   * Maps client/screen coordinates (e.g. mouse or touch pointer event)
    * to discrete/continuous simulation grid cell coordinates.
    * Ensures accurate interaction regardless of viewport size or aspect ratio scaling.
    * 

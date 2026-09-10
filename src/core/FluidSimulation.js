@@ -260,6 +260,13 @@ export class FluidSimulation {
   }
 
   /**
+   * Computes discrete divergence for the current velocity field.
+   */
+  computeDivergence() {
+    this.solver.computeDivergence();
+  }
+
+  /**
    * Returns direct reference to divergence Float32Array buffer.
    */
   getDivergenceBuffer() {

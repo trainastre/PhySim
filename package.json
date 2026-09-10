@@ -4,9 +4,6 @@
   "description": "2D Fluid Dynamics Simulation Engine in JavaScript",
   "main": "src/index.js",
   "type": "module",
-  "scripts": {
-    "test": "node test/run-tests.js"
-  },
   "keywords": [
     "physics",
     "fluid-dynamics",
