@@ -42,6 +42,15 @@ export class FluidSimulation {
 
     this.time = 0.0;
     this.stepCount = 0;
+
+    // Preallocated telemetry object to prevent GC spikes
+    this._diagnostics = {
+      time: 0,
+      stepCount: 0,
+      totalDensity: 0,
+      maxSpeed: 0,
+      maxDivergence: 0,
+    };
   }
 
   // --- Dynamic Simulation Parameter Accessors (Instant updates) ---
@@ -192,7 +201,7 @@ export class FluidSimulation {
    * Adds a rectangular solid obstacle box.
    * @param {number} x - Start cell x.
    * @param {number} y - Start cell y.
-   * @param {number} w - Width in cells.
+   * @param {number} w - Box width.
    * @param {number} h - Height in cells.
    * @param {boolean} [isSolid=true] - Solid status.
    */
@@ -301,15 +310,15 @@ export class FluidSimulation {
   }
 
   /**
-   * Returns physical diagnostic statistics.
+   * Returns physical diagnostic statistics without allocating new objects.
+   * @returns {{ time: number, stepCount: number, totalDensity: number, maxSpeed: number, maxDivergence: number }}
    */
   getDiagnostics() {
-    return {
-      time: this.time,
-      stepCount: this.stepCount,
-      totalDensity: this.solver.getTotalDensity(),
-      maxSpeed: this.solver.getMaxSpeed(),
-      maxDivergence: this.solver.getMaxDivergence(),
-    };
+    this._diagnostics.time = this.time;
+    this._diagnostics.stepCount = this.stepCount;
+    this._diagnostics.totalDensity = this.solver.getTotalDensity();
+    this._diagnostics.maxSpeed = this.solver.getMaxSpeed();
+    this._diagnostics.maxDivergence = this.solver.getMaxDivergence();
+    return this._diagnostics;
   }
 }

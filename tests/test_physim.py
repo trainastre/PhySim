@@ -74,3 +74,39 @@ def test_interactive_mouse_touch_controls():
     # Verify dragging speed determines force vector magnitude
     assert "speed" in content, "Must calculate pointer dragging speed"
     assert "forceMagnitude" in content, "Must determine force magnitude from drag speed"
+
+def test_performance_and_frame_rate_monitoring():
+    """Verifies performance profiling, frame rate monitoring, and rendering memory optimizations."""
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    perf_file = os.path.join(project_dir, "src", "utils", "PerformanceMonitor.js")
+    assert os.path.exists(perf_file), "PerformanceMonitor.js must exist"
+
+    with open(perf_file, "r", encoding="utf-8") as f:
+        perf_content = f.read()
+
+    assert "PerformanceMonitor" in perf_content, "PerformanceMonitor class must be defined"
+    assert "beginFrame" in perf_content, "Must implement beginFrame"
+    assert "endFrame" in perf_content, "Must implement endFrame"
+    assert "beginSim" in perf_content, "Must implement beginSim"
+    assert "endSim" in perf_content, "Must implement endSim"
+    assert "beginRender" in perf_content, "Must implement beginRender"
+    assert "endRender" in perf_content, "Must implement endRender"
+    assert "performance.mark" in perf_content, "Must integrate with User Timing API performance.mark"
+    assert "performance.measure" in perf_content, "Must integrate with User Timing API performance.measure"
+    assert "targetFps" in perf_content, "Must track target FPS"
+
+    # Verify app simulation loop uses PerformanceMonitor and 60 FPS fixed timestep
+    app_file = os.path.join(project_dir, "src", "ui", "app.js")
+    with open(app_file, "r", encoding="utf-8") as f:
+        app_content = f.read()
+
+    assert "PerformanceMonitor" in app_content, "app.js must import PerformanceMonitor"
+    assert "perfMonitor" in app_content, "app.js must instantiate perfMonitor"
+    assert "accumulator" in app_content, "app.js must use fixed timestep accumulator for 60 FPS"
+
+    # Verify FluidRenderer uses 32-bit pixel buffer optimization
+    renderer_file = os.path.join(project_dir, "src", "rendering", "FluidRenderer.js")
+    with open(renderer_file, "r", encoding="utf-8") as f:
+        renderer_content = f.read()
+
+    assert "pixels32" in renderer_content, "FluidRenderer must optimize drawing using 32-bit pixel array"

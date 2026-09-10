@@ -11,5 +11,15 @@ export { Advection } from './core/Advection.js';
 export { clamp, lerp, bilinearSample } from './utils/MathUtils.js';
 
 export { FluidRenderer, RenderMode } from './rendering/FluidRenderer.js';
-export { ColorPalette, sampleColorMap, getPaletteLUT, hsvToRgb } from './rendering/ColorMaps.js';
+export {
+  ColorPalette,
+  sampleColorMap,
+  getPaletteLUT,
+  getPaletteLUT32,
+  packRGBA,
+  hsvToRgb,
+  hsvToRgb32,
+} from './rendering/ColorMaps.js';
 export { PointerController } from './ui/PointerController.js';
+export { PerformanceMonitor } from './utils/PerformanceMonitor.js';
+export { PhySimApp } from './ui/app.js';

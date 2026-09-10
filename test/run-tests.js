@@ -3,6 +3,7 @@ import { runFluidSolverTests } from './FluidSolver.test.js';
 import { runBoundaryConditionsTests } from './BoundaryConditions.test.js';
 import { runFluidRendererTests } from './FluidRenderer.test.js';
 import { runPointerControllerTests } from './PointerController.test.js';
+import { runPerformanceMonitorTests } from './PerformanceMonitor.test.js';
 
 console.log('==========================================');
 console.log('PhySim - Core Fluid Dynamics & Rendering Tests');
@@ -16,6 +17,8 @@ try {
   runFluidRendererTests(assert);
   console.log('');
   runPointerControllerTests(assert);
+  console.log('');
+  runPerformanceMonitorTests(assert);
 
   console.log('\n==========================================');
   console.log('ALL TESTS PASSED SUCCESSFULLY! (100% OK)');

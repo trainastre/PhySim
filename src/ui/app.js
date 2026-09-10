@@ -2,11 +2,12 @@ import { FluidSimulation } from '../core/FluidSimulation.js';
 import { FluidRenderer, RenderMode } from '../rendering/FluidRenderer.js';
 import { ColorPalette } from '../rendering/ColorMaps.js';
 import { PointerController } from './PointerController.js';
+import { PerformanceMonitor } from '../utils/PerformanceMonitor.js';
 
 /**
  * PhySim Web Application Controller.
- * Manages simulation loop, responsive canvas scaling, real-time UI parameter bindings,
- * and user interaction (mouse/touch pointer gestures).
+ * Manages 60 FPS simulation loop with fixed-timestep physics, responsive canvas scaling,
+ * real-time UI parameter bindings, pointer gestures, and Browser DevTools profiling.
  */
 export class PhySimApp {
   constructor() {
@@ -54,9 +55,19 @@ export class PhySimApp {
       interpolate: true,
     });
 
-    // Diagnostics & FPS tracking
+    // Performance Monitoring & DevTools Profiler (Target: 60 FPS)
+    this.perfMonitor = new PerformanceMonitor({
+      targetFps: 60,
+      historySize: 60,
+      enableUserTiming: true,
+    });
+
+    // Fixed-timestep simulation accumulator for consistent 60 FPS physics
+    this.accumulator = 0.0;
+    this.fixedTimeStep = 1.0 / 60.0; // ~0.01667s per physics step
+    this.maxSubSteps = 3;           // Bound sub-steps to prevent spiral of death
+
     this.lastFrameTime = performance.now();
-    this.frameCount = 0;
     this.fps = 60;
     this.fpsTimer = performance.now();
 
@@ -67,6 +78,11 @@ export class PhySimApp {
 
     // Load initial scene
     this.loadPreset('plume');
+
+    // Expose app instance globally in browser for developer tools profiling
+    if (typeof window !== 'undefined') {
+      window.__physimApp = this;
+    }
 
     // Start simulation loop
     window.addEventListener('resize', () => this.handleViewportResize());
@@ -232,7 +248,7 @@ export class PhySimApp {
 
     if (ui.stepBtn) {
       ui.stepBtn.addEventListener('click', () => {
-        sim.step(0.016);
+        sim.step(this.fixedTimeStep);
         renderer.render();
       });
     }
@@ -276,7 +292,7 @@ export class PhySimApp {
    * Sets up predefined physics scenarios.
    */
   loadPreset(presetName) {
-    const { sim, ui } = this;
+    const { sim } = this;
     const dims = sim.getDimensions();
     const cx = Math.floor(dims.width / 2);
     const cy = Math.floor(dims.height / 2);
@@ -381,18 +397,39 @@ export class PhySimApp {
 
   /**
    * Main real-time simulation and rendering loop.
+   * Profiles simulation and rendering phases, and ensures consistent 60 FPS execution
+   * via fixed-timestep accumulation.
    */
   loop(currentTime) {
-    const dt = Math.min(0.033, Math.max(0.001, (currentTime - this.lastFrameTime) / 1000));
-    this.lastFrameTime = currentTime;
+    this.perfMonitor.beginFrame(currentTime);
 
-    // Advance physics if running
+    const rawDt = (currentTime - this.lastFrameTime) / 1000;
+    this.lastFrameTime = currentTime;
+    const dt = Math.min(0.1, Math.max(0.0005, rawDt));
+
+    // Fixed-timestep simulation steps for consistent 60 FPS physics
     if (this.isRunning) {
-      this.sim.step(dt);
+      this.perfMonitor.beginSim();
+      this.accumulator += dt;
+      let subSteps = 0;
+      while (this.accumulator >= this.fixedTimeStep && subSteps < this.maxSubSteps) {
+        this.sim.step(this.fixedTimeStep);
+        this.accumulator -= this.fixedTimeStep;
+        subSteps++;
+      }
+      // If still lagging behind (e.g. background tab or long stall), discard accumulator
+      if (this.accumulator >= this.fixedTimeStep) {
+        this.accumulator = 0;
+      }
+      this.perfMonitor.endSim();
     }
 
     // Render fluid state to canvas
+    this.perfMonitor.beginRender();
     this.renderer.render();
+    this.perfMonitor.endRender();
+
+    this.perfMonitor.endFrame();
 
     // Update performance and physics diagnostics
     this.updateDiagnostics(currentTime);
@@ -401,23 +438,49 @@ export class PhySimApp {
   }
 
   /**
-   * Updates diagnostic stats (FPS, speeds, divergences, densities).
+   * Updates diagnostic stats (FPS, execution timings, speeds, divergences, densities).
    */
   updateDiagnostics(currentTime) {
-    this.frameCount++;
-    if (currentTime - this.fpsTimer >= 500) {
-      this.fps = Math.round((this.frameCount * 1000) / (currentTime - this.fpsTimer));
-      this.frameCount = 0;
+    if (currentTime - this.fpsTimer >= 250) {
       this.fpsTimer = currentTime;
+      const perf = this.perfMonitor.getStats();
+      this.fps = perf.fps;
 
       const diag = this.sim.getDiagnostics();
       const { ui } = this;
 
-      if (ui.fpsStat) ui.fpsStat.textContent = String(this.fps);
+      if (ui.fpsStat) {
+        ui.fpsStat.textContent = String(perf.fps);
+        ui.fpsStat.title = `Frame: ${perf.frameTime.toFixed(1)}ms | Sim: ${perf.simTime.toFixed(1)}ms | Render: ${perf.renderTime.toFixed(1)}ms | Dropped: ${perf.droppedFrames}`;
+      }
       if (ui.speedStat) ui.speedStat.textContent = diag.maxSpeed.toFixed(1);
       if (ui.densityStat) ui.densityStat.textContent = Math.round(diag.totalDensity).toLocaleString();
       if (ui.divStat) ui.divStat.textContent = diag.maxDivergence.toFixed(3);
     }
+  }
+
+  /**
+   * Returns current real-time performance telemetry.
+   * Accessible via browser DevTools console: `__physimApp.getPerformanceStats()`.
+   */
+  getPerformanceStats() {
+    return this.perfMonitor.getStats();
+  }
+
+  /**
+   * Starts browser developer tools CPU profiler.
+   * @param {string} [label='PhySim']
+   */
+  startProfiling(label = 'PhySim') {
+    this.perfMonitor.startProfile(label);
+  }
+
+  /**
+   * Stops browser developer tools CPU profiler.
+   * @param {string} [label='PhySim']
+   */
+  stopProfiling(label = 'PhySim') {
+    this.perfMonitor.stopProfile(label);
   }
 }
 
