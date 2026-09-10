@@ -1,0 +1,20 @@
+{
+  "name": "physim",
+  "version": "1.0.0",
+  "description": "2D Fluid Dynamics Simulation Engine in JavaScript",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node test/run-tests.js"
+  },
+  "keywords": [
+    "physics",
+    "fluid-dynamics",
+    "navier-stokes",
+    "simulation",
+    "eulerian",
+    "stable-fluids"
+  ],
+  "author": "",
+  "license": "MIT"
+}
