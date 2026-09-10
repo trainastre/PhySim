@@ -7,7 +7,7 @@ import { clamp } from '../utils/MathUtils.js';
  * Features:
  * - Accurate coordinate mapping from client space to canvas space and grid cells.
  * - Dynamic dragging speed calculation determining applied velocity force vector magnitude.
- * - Minimal input lag with immediate physics injection and browser event throttling avoidance.
+ * - Minimal input lag with immediate physics injection and zero-allocation continuous move events.
  * - Seamless multi-touch and pointer capture support.
  * - Stroke path interpolation for fast sweeping gestures without droplet gaps.
  */
@@ -40,6 +40,10 @@ export class PointerController {
 
     // Active pointers map: pointerId -> pointerState
     this.activePointers = new Map();
+
+    // Reusable vector buffers to prevent garbage collection during dragging
+    this._tempCanvasPos = { x: 0, y: 0 };
+    this._tempGridPos = { x: 0, y: 0 };
 
     // Diagnostics / telemetry
     this.lastAppliedForce = 0;
@@ -86,46 +90,57 @@ export class PointerController {
 
   /**
    * Maps screen viewport coordinates to canvas pixel space.
+   * Accepts optional `out` object to avoid memory allocation in hot loops.
+   * 
    * @param {number} clientX
    * @param {number} clientY
+   * @param {Object} [out=null]
    * @returns {{ x: number, y: number }}
    */
-  clientToCanvas(clientX, clientY) {
+  clientToCanvas(clientX, clientY, out = null) {
     if (this.renderer && typeof this.renderer.clientToCanvas === 'function') {
-      return this.renderer.clientToCanvas(clientX, clientY);
+      return this.renderer.clientToCanvas(clientX, clientY, out);
     }
+    const res = out || { x: 0, y: 0 };
     if (!this.canvas || !this.canvas.getBoundingClientRect) {
-      return { x: 0, y: 0 };
+      res.x = 0;
+      res.y = 0;
+      return res;
     }
     const rect = this.canvas.getBoundingClientRect();
     const scaleX = (this.canvas.width || rect.width || 1) / (rect.width || 1);
     const scaleY = (this.canvas.height || rect.height || 1) / (rect.height || 1);
-    const x = clamp((clientX - rect.left) * scaleX, 0, this.canvas.width || rect.width);
-    const y = clamp((clientY - rect.top) * scaleY, 0, this.canvas.height || rect.height);
-    return { x, y };
+    res.x = clamp((clientX - rect.left) * scaleX, 0, this.canvas.width || rect.width);
+    res.y = clamp((clientY - rect.top) * scaleY, 0, this.canvas.height || rect.height);
+    return res;
   }
 
   /**
    * Maps screen viewport coordinates to simulation grid cells.
+   * Accepts optional `out` object to avoid memory allocation in hot loops.
+   * 
    * @param {number} clientX
    * @param {number} clientY
+   * @param {Object} [out=null]
    * @returns {{ x: number, y: number }}
    */
-  clientToGrid(clientX, clientY) {
+  clientToGrid(clientX, clientY, out = null) {
     if (this.renderer && typeof this.renderer.clientToGrid === 'function') {
-      return this.renderer.clientToGrid(clientX, clientY);
+      return this.renderer.clientToGrid(clientX, clientY, out);
     }
     const dims = this.simulation ? this.simulation.getDimensions() : { width: 64, height: 64 };
+    const res = out || { x: 0, y: 0 };
     if (!this.canvas || !this.canvas.getBoundingClientRect) {
-      return { x: 0, y: 0 };
+      res.x = 0;
+      res.y = 0;
+      return res;
     }
     const rect = this.canvas.getBoundingClientRect();
     const nx = (clientX - rect.left) / (rect.width || 1);
     const ny = (clientY - rect.top) / (rect.height || 1);
-    return {
-      x: clamp(nx * dims.width, 0, dims.width - 1),
-      y: clamp(ny * dims.height, 0, dims.height - 1),
-    };
+    res.x = clamp(nx * dims.width, 0, dims.width - 1);
+    res.y = clamp(ny * dims.height, 0, dims.height - 1);
+    return res;
   }
 
   /**
@@ -171,7 +186,7 @@ export class PointerController {
   /**
    * Handles pointer motion (mouse move / touch move).
    * Computes dragging speed, determines magnitude of applied force vector,
-   * and injects momentum/mass into the simulation space.
+   * and injects momentum/mass into the simulation space without garbage collection spikes.
    * 
    * @param {number|string} id - Pointer identifier.
    * @param {number} clientX - Screen X position.
@@ -184,8 +199,8 @@ export class PointerController {
     if (!pointer) return null;
 
     const now = time ?? (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    const canvasPos = this.clientToCanvas(clientX, clientY);
-    const gridPos = this.clientToGrid(clientX, clientY);
+    const canvasPos = this.clientToCanvas(clientX, clientY, this._tempCanvasPos);
+    const gridPos = this.clientToGrid(clientX, clientY, this._tempGridPos);
 
     // Elapsed time in seconds (bounded to prevent division by zero or large gaps)
     const dt = Math.max(0.001, (now - pointer.lastTime) / 1000);

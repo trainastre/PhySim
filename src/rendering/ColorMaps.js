@@ -13,6 +13,33 @@ export const ColorPalette = Object.freeze({
 });
 
 /**
+ * System endianness detection for high-performance 32-bit pixel packing.
+ */
+export const isLittleEndian = (() => {
+  const buf = new ArrayBuffer(4);
+  new Uint8Array(buf)[0] = 0x12;
+  return new Uint32Array(buf)[0] === 0x12;
+})();
+
+/**
+ * Packs 8-bit RGBA components into a single 32-bit unsigned integer
+ * matching native canvas pixel buffer memory layout.
+ * 
+ * @param {number} r - Red (0-255)
+ * @param {number} g - Green (0-255)
+ * @param {number} b - Blue (0-255)
+ * @param {number} [a=255] - Alpha (0-255)
+ * @returns {number} 32-bit packed color integer
+ */
+export function packRGBA(r, g, b, a = 255) {
+  if (isLittleEndian) {
+    return (((a & 0xff) << 24) | ((b & 0xff) << 16) | ((g & 0xff) << 8) | (r & 0xff)) >>> 0;
+  } else {
+    return (((r & 0xff) << 24) | ((g & 0xff) << 16) | ((b & 0xff) << 8) | (a & 0xff)) >>> 0;
+  }
+}
+
+/**
  * Color stop definitions for fluid colormaps.
  * Stops are normalized from t = 0.0 to 1.0 with RGB triplets [0-255].
  */
@@ -107,10 +134,32 @@ function buildLookupTable(stops) {
   return lut;
 }
 
-// Precompute LUTs for fast O(1) sampling per cell
+/**
+ * Builds a 256-entry Uint32Array LUT from 8-bit RGBA LUT for fast 1-cycle pixel writes.
+ * @param {Uint8ClampedArray} uint8Lut
+ * @returns {Uint32Array}
+ */
+function buildLookupTable32(uint8Lut) {
+  const lut32 = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const offset = i * 4;
+    const r = uint8Lut[offset];
+    const g = uint8Lut[offset + 1];
+    const b = uint8Lut[offset + 2];
+    const a = uint8Lut[offset + 3];
+    lut32[i] = packRGBA(r, g, b, a);
+  }
+  return lut32;
+}
+
+// Precompute 8-bit and 32-bit LUTs for fast O(1) sampling per cell
 const COLOR_LUTS = {};
+const COLOR_LUTS_32 = {};
+
 for (const [key, stops] of Object.entries(PALETTE_DEFINITIONS)) {
-  COLOR_LUTS[key] = buildLookupTable(stops);
+  const lut8 = buildLookupTable(stops);
+  COLOR_LUTS[key] = lut8;
+  COLOR_LUTS_32[key] = buildLookupTable32(lut8);
 }
 
 /**
@@ -123,27 +172,51 @@ export function getPaletteLUT(palette = ColorPalette.FIRE) {
 }
 
 /**
+ * Retrieves the precomputed 256-entry Uint32Array lookup table for a given palette.
+ * Enables direct 32-bit writes to the canvas pixel buffer without per-channel indexing.
+ * 
+ * @param {string} palette - One of ColorPalette values.
+ * @returns {Uint32Array}
+ */
+export function getPaletteLUT32(palette = ColorPalette.FIRE) {
+  return COLOR_LUTS_32[palette] || COLOR_LUTS_32[ColorPalette.FIRE];
+}
+
+/**
  * Samples RGBA color for a normalized value t in [0.0, 1.0].
+ * Accepts an optional target array to avoid memory allocation in hot loops.
+ * 
  * @param {string} palette - Color palette name.
  * @param {number} t - Normalized value between 0.0 and 1.0.
- * @returns {[number, number, number, number]} [r, g, b, a]
+ * @param {Array<number>|Uint8Array|Uint8ClampedArray} [out=null] - Optional output array.
+ * @returns {Array<number>|Uint8Array|Uint8ClampedArray} [r, g, b, a]
  */
-export function sampleColorMap(palette, t) {
+export function sampleColorMap(palette, t, out = null) {
   const lut = getPaletteLUT(palette);
   const index = Math.min(255, Math.max(0, (clamp(t, 0.0, 1.0) * 255) | 0)) * 4;
+
+  if (out) {
+    out[0] = lut[index];
+    out[1] = lut[index + 1];
+    out[2] = lut[index + 2];
+    out[3] = lut[index + 3];
+    return out;
+  }
+
   return [lut[index], lut[index + 1], lut[index + 2], lut[index + 3]];
 }
 
 /**
- * Converts HSV (Hue in [0, 1), Saturation in [0, 1], Value/Brightness in [0, 1]) to RGB.
- * Useful for 360-degree flow direction color wheel representation.
+ * Converts HSV to RGB triplet.
+ * Accepts an optional target array to avoid memory allocation.
  * 
  * @param {number} h - Hue [0, 1)
  * @param {number} s - Saturation [0, 1]
  * @param {number} v - Value [0, 1]
- * @returns {[number, number, number]} [r, g, b] in [0, 255]
+ * @param {Array<number>|Uint8Array} [out=null] - Optional output array
+ * @returns {Array<number>|Uint8Array} [r, g, b] in [0, 255]
  */
-export function hsvToRgb(h, s, v) {
+export function hsvToRgb(h, s, v, out = null) {
   const normH = (h % 1 + 1) % 1; // Wrap into [0, 1)
   const i = Math.floor(normH * 6);
   const f = normH * 6 - i;
@@ -164,9 +237,54 @@ export function hsvToRgb(h, s, v) {
     case 5: r = v; g = p; b = q; break;
   }
 
-  return [
-    Math.round(r * 255),
-    Math.round(g * 255),
-    Math.round(b * 255),
-  ];
+  const r8 = Math.round(r * 255);
+  const g8 = Math.round(g * 255);
+  const b8 = Math.round(b * 255);
+
+  if (out) {
+    out[0] = r8;
+    out[1] = g8;
+    out[2] = b8;
+    return out;
+  }
+
+  return [r8, g8, b8];
+}
+
+/**
+ * Converts HSV to packed 32-bit RGBA integer without allocating any memory.
+ * Optimized for hot real-time direction visualization loops.
+ * 
+ * @param {number} h - Hue [0, 1)
+ * @param {number} s - Saturation [0, 1]
+ * @param {number} v - Value [0, 1]
+ * @param {number} [a=255] - Alpha [0, 255]
+ * @returns {number} 32-bit packed RGBA integer
+ */
+export function hsvToRgb32(h, s, v, a = 255) {
+  const normH = (h % 1 + 1) % 1;
+  const i = Math.floor(normH * 6);
+  const f = normH * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  switch (i % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    case 5: r = v; g = p; b = q; break;
+  }
+
+  const r8 = Math.round(r * 255);
+  const g8 = Math.round(g * 255);
+  const b8 = Math.round(b * 255);
+
+  return packRGBA(r8, g8, b8, a);
 }

@@ -1,5 +1,5 @@
 import { clamp } from '../utils/MathUtils.js';
-import { ColorPalette, getPaletteLUT, hsvToRgb } from './ColorMaps.js';
+import { ColorPalette, getPaletteLUT, getPaletteLUT32, packRGBA, hsvToRgb, hsvToRgb32 } from './ColorMaps.js';
 
 /**
  * Render modes for fluid visualization.
@@ -15,6 +15,7 @@ export const RenderMode = Object.freeze({
 /**
  * High-performance HTML5 2D Canvas rendering pipeline for PhySim.
  * Visualizes fluid density, velocity gradients, vectors, and solid obstacles.
+ * Optimized with 32-bit pixel writes, zero-allocation loops, and batched vector draw calls.
  */
 export class FluidRenderer {
   /**
@@ -57,9 +58,12 @@ export class FluidRenderer {
     this.maxSpeedScale = options.maxSpeedScale ?? 30.0;
     this.smoothScaling = options.smoothScaling ?? true;
 
-    // Solid obstacle styling
+    // Solid obstacle styling (precomputed 8-bit and 32-bit)
     this.obstacleColor = [40, 46, 60, 255];       // Dark slate
     this.boundaryWallColor = [25, 28, 38, 255];   // Deep border
+    this.obstacleColor32 = packRGBA(40, 46, 60, 255);
+    this.boundaryWallColor32 = packRGBA(25, 28, 38, 255);
+    this.directionDarkColor32 = packRGBA(10, 12, 18, 255);
 
     // Create offscreen buffer canvas matching grid resolution for fast rasterization
     this._initOffscreenBuffer();
@@ -84,6 +88,9 @@ export class FluidRenderer {
       };
     }
     this.pixels = this.imageData.data;
+    this.pixels32 = (this.imageData.data && this.imageData.data.buffer)
+      ? new Uint32Array(this.imageData.data.buffer)
+      : null;
   }
 
   /**
@@ -113,6 +120,9 @@ export class FluidRenderer {
         lineTo: () => {},
         stroke: () => {},
         fill: () => {},
+        closePath: () => {},
+        save: () => {},
+        restore: () => {},
         imageSmoothingEnabled: true,
       }),
     };
@@ -201,17 +211,20 @@ export class FluidRenderer {
   }
 
   /**
-   * Maps client/screen coordinates (e.g. mouse or touch pointer event)
-   * to canvas coordinate space [0, canvas.width] x [0, canvas.height].
-   * Ensures accurate interaction regardless of viewport size or aspect ratio scaling.
+   * Maps client/screen coordinates to canvas pixel space.
+   * Accepts optional `out` object to avoid memory allocation.
    * 
    * @param {number} clientX - Screen X position.
    * @param {number} clientY - Screen Y position.
+   * @param {Object} [out=null] - Optional output object to receive {x, y}.
    * @returns {{ x: number, y: number }} Canvas pixel coordinates.
    */
-  clientToCanvas(clientX, clientY) {
+  clientToCanvas(clientX, clientY, out = null) {
+    const res = out || { x: 0, y: 0 };
     if (!this.canvas || !this.canvas.getBoundingClientRect) {
-      return { x: 0, y: 0 };
+      res.x = 0;
+      res.y = 0;
+      return res;
     }
 
     const rect = this.canvas.getBoundingClientRect();
@@ -224,58 +237,67 @@ export class FluidRenderer {
     const canvasWidth = this.canvas.width || width;
     const canvasHeight = this.canvas.height || height;
 
-    const canvasX = clamp(normalizedX * canvasWidth, 0, canvasWidth);
-    const canvasY = clamp(normalizedY * canvasHeight, 0, canvasHeight);
+    res.x = clamp(normalizedX * canvasWidth, 0, canvasWidth);
+    res.y = clamp(normalizedY * canvasHeight, 0, canvasHeight);
 
-    return { x: canvasX, y: canvasY };
+    return res;
   }
 
   /**
    * Maps canvas coordinates to discrete/continuous simulation grid cell coordinates.
+   * Accepts optional `out` object to avoid memory allocation.
    * 
    * @param {number} canvasX - Canvas X position.
    * @param {number} canvasY - Canvas Y position.
+   * @param {Object} [out=null] - Optional output object to receive {x, y}.
    * @returns {{ x: number, y: number }} Grid coordinates in cell units.
    */
-  canvasToGrid(canvasX, canvasY) {
+  canvasToGrid(canvasX, canvasY, out = null) {
+    const res = out || { x: 0, y: 0 };
     const canvasWidth = this.canvas ? (this.canvas.width || 1) : 1;
     const canvasHeight = this.canvas ? (this.canvas.height || 1) : 1;
 
-    const gridX = clamp((canvasX / canvasWidth) * this.gridWidth, 0, this.gridWidth - 1);
-    const gridY = clamp((canvasY / canvasHeight) * this.gridHeight, 0, this.gridHeight - 1);
+    res.x = clamp((canvasX / canvasWidth) * this.gridWidth, 0, this.gridWidth - 1);
+    res.y = clamp((canvasY / canvasHeight) * this.gridHeight, 0, this.gridHeight - 1);
 
-    return { x: gridX, y: gridY };
+    return res;
   }
 
   /**
    * Maps grid coordinates to canvas coordinates.
+   * Accepts optional `out` object to avoid memory allocation.
    * 
    * @param {number} gridX - Grid X position.
    * @param {number} gridY - Grid Y position.
+   * @param {Object} [out=null] - Optional output object to receive {x, y}.
    * @returns {{ x: number, y: number }} Canvas coordinates.
    */
-  gridToCanvas(gridX, gridY) {
+  gridToCanvas(gridX, gridY, out = null) {
+    const res = out || { x: 0, y: 0 };
     const canvasWidth = this.canvas ? (this.canvas.width || 1) : 1;
     const canvasHeight = this.canvas ? (this.canvas.height || 1) : 1;
 
-    const canvasX = (gridX / this.gridWidth) * canvasWidth;
-    const canvasY = (gridY / this.gridHeight) * canvasHeight;
+    res.x = (gridX / this.gridWidth) * canvasWidth;
+    res.y = (gridY / this.gridHeight) * canvasHeight;
 
-    return { x: canvasX, y: canvasY };
+    return res;
   }
 
   /**
-   * Maps client/screen coordinates (e.g. mouse or touch pointer event)
-   * to discrete/continuous simulation grid cell coordinates.
-   * Ensures accurate interaction regardless of viewport size or aspect ratio scaling.
+   * Maps client/screen coordinates to simulation grid cell coordinates.
+   * Accepts optional `out` object to avoid memory allocation.
    * 
    * @param {number} clientX - Screen X position.
    * @param {number} clientY - Screen Y position.
+   * @param {Object} [out=null] - Optional output object to receive {x, y}.
    * @returns {{ x: number, y: number }} Grid coordinates in cell units.
    */
-  clientToGrid(clientX, clientY) {
+  clientToGrid(clientX, clientY, out = null) {
+    const res = out || { x: 0, y: 0 };
     if (!this.canvas || !this.canvas.getBoundingClientRect) {
-      return { x: 0, y: 0 };
+      res.x = 0;
+      res.y = 0;
+      return res;
     }
 
     const rect = this.canvas.getBoundingClientRect();
@@ -285,140 +307,205 @@ export class FluidRenderer {
     const normalizedX = (clientX - rect.left) / width;
     const normalizedY = (clientY - rect.top) / height;
 
-    const gridX = clamp(normalizedX * this.gridWidth, 0, this.gridWidth - 1);
-    const gridY = clamp(normalizedY * this.gridHeight, 0, this.gridHeight - 1);
+    res.x = clamp(normalizedX * this.gridWidth, 0, this.gridWidth - 1);
+    res.y = clamp(normalizedY * this.gridHeight, 0, this.gridHeight - 1);
 
-    return { x: gridX, y: gridY };
+    return res;
   }
 
   /**
    * Primary rendering pipeline step.
-   * Rasterizes simulation buffers according to active render mode and palette,
-   * scales to canvas viewport, and draws optional vector glyphs.
+   * Rasterizes simulation buffers using fast 32-bit pixel stores,
+   * scales to canvas viewport without redundant clearRect calls, and batches vector glyphs.
    */
   render() {
-    const { gridWidth, gridHeight, simulation, pixels, renderMode, colorPalette } = this;
+    const { gridWidth, gridHeight, simulation, pixels, pixels32, renderMode, colorPalette } = this;
     const density = simulation.getDensityBuffer();
     const { u, v } = simulation.getVelocityBuffers();
     const solid = simulation.getObstacleBuffer();
     const pressure = simulation.getPressureBuffer();
     const divergence = simulation.getDivergenceBuffer();
 
-    const lut = getPaletteLUT(colorPalette);
     const invDensityScale = 1.0 / this.maxDensityScale;
     const invSpeedScale = 1.0 / this.maxSpeedScale;
+    const invTwoPi = 1.0 / (2 * Math.PI);
 
-    // 1. Fill offscreen pixel buffer based on active render mode
-    let pixelOffset = 0;
+    // Fast path: use 32-bit integer writes when Uint32Array view is available
+    if (pixels32) {
+      const lut32 = getPaletteLUT32(colorPalette);
+      const { obstacleColor32, boundaryWallColor32, directionDarkColor32 } = this;
 
-    for (let y = 0; y < gridHeight; y++) {
-      const row = y * gridWidth;
-      for (let x = 0; x < gridWidth; x++) {
-        const idx = row + x;
+      for (let y = 0; y < gridHeight; y++) {
+        const row = y * gridWidth;
+        for (let x = 0; x < gridWidth; x++) {
+          const idx = row + x;
 
-        // Render solid obstacles and boundary walls
-        if (this.showObstacles && solid[idx] === 1) {
-          const isBorder = (x === 0 || x === gridWidth - 1 || y === 0 || y === gridHeight - 1);
-          const col = isBorder ? this.boundaryWallColor : this.obstacleColor;
-          pixels[pixelOffset] = col[0];
-          pixels[pixelOffset + 1] = col[1];
-          pixels[pixelOffset + 2] = col[2];
-          pixels[pixelOffset + 3] = col[3];
-          pixelOffset += 4;
-          continue;
-        }
-
-        let r = 0;
-        let g = 0;
-        let b = 0;
-        let a = 255;
-
-        switch (renderMode) {
-          case RenderMode.DENSITY: {
-            const d = density[idx];
-            const t = clamp(d * invDensityScale, 0.0, 1.0);
-            const lutIdx = (t * 255) | 0;
-            const lutOffset = lutIdx * 4;
-            r = lut[lutOffset];
-            g = lut[lutOffset + 1];
-            b = lut[lutOffset + 2];
-            break;
+          // Render solid obstacles and boundary walls
+          if (this.showObstacles && solid[idx] === 1) {
+            const isBorder = (x === 0 || x === gridWidth - 1 || y === 0 || y === gridHeight - 1);
+            pixels32[idx] = isBorder ? boundaryWallColor32 : obstacleColor32;
+            continue;
           }
 
-          case RenderMode.VELOCITY: {
-            // Velocity speed gradient: |u, v|
-            const velU = u[idx];
-            const velV = v[idx];
-            const speed = Math.hypot(velU, velV);
-            const t = clamp(speed * invSpeedScale, 0.0, 1.0);
-            const lutIdx = (t * 255) | 0;
-            const lutOffset = lutIdx * 4;
-            r = lut[lutOffset];
-            g = lut[lutOffset + 1];
-            b = lut[lutOffset + 2];
-            break;
-          }
-
-          case RenderMode.DIRECTION: {
-            // Flow direction angle mapped to HSV color wheel
-            const velU = u[idx];
-            const velV = v[idx];
-            const speed = Math.hypot(velU, velV);
-            if (speed < 0.01) {
-              r = 10; g = 12; b = 18;
-            } else {
-              const angle = Math.atan2(velV, velU); // [-PI, PI]
-              const hue = (angle + Math.PI) / (2 * Math.PI); // [0, 1)
-              const val = clamp(speed * invSpeedScale, 0.2, 1.0);
-              const rgb = hsvToRgb(hue, 0.95, val);
-              r = rgb[0];
-              g = rgb[1];
-              b = rgb[2];
+          switch (renderMode) {
+            case RenderMode.DENSITY: {
+              const d = density[idx];
+              const t = clamp(d * invDensityScale, 0.0, 1.0);
+              pixels32[idx] = lut32[(t * 255) | 0];
+              break;
             }
-            break;
-          }
 
-          case RenderMode.PRESSURE: {
-            // Visualizes pressure field (relative variations)
-            const p = pressure[idx];
-            const t = clamp((p + 1.0) * 0.5, 0.0, 1.0);
-            const lutIdx = (t * 255) | 0;
-            const lutOffset = lutIdx * 4;
-            r = lut[lutOffset];
-            g = lut[lutOffset + 1];
-            b = lut[lutOffset + 2];
-            break;
-          }
+            case RenderMode.VELOCITY: {
+              const velU = u[idx];
+              const velV = v[idx];
+              const speed = Math.hypot(velU, velV);
+              const t = clamp(speed * invSpeedScale, 0.0, 1.0);
+              pixels32[idx] = lut32[(t * 255) | 0];
+              break;
+            }
 
-          case RenderMode.DIVERGENCE: {
-            // Visualizes discrete divergence magnitude
-            const div = Math.abs(divergence[idx]);
-            const t = clamp(div * 5.0, 0.0, 1.0);
-            const lutIdx = (t * 255) | 0;
-            const lutOffset = lutIdx * 4;
-            r = lut[lutOffset];
-            g = lut[lutOffset + 1];
-            b = lut[lutOffset + 2];
-            break;
-          }
+            case RenderMode.DIRECTION: {
+              const velU = u[idx];
+              const velV = v[idx];
+              const speed = Math.hypot(velU, velV);
+              if (speed < 0.01) {
+                pixels32[idx] = directionDarkColor32;
+              } else {
+                const angle = Math.atan2(velV, velU);
+                const hue = (angle + Math.PI) * invTwoPi;
+                const val = clamp(speed * invSpeedScale, 0.2, 1.0);
+                pixels32[idx] = hsvToRgb32(hue, 0.95, val);
+              }
+              break;
+            }
 
-          default: {
-            const d = density[idx];
-            const t = clamp(d * invDensityScale, 0.0, 1.0);
-            const lutIdx = (t * 255) | 0;
-            const lutOffset = lutIdx * 4;
-            r = lut[lutOffset];
-            g = lut[lutOffset + 1];
-            b = lut[lutOffset + 2];
-            break;
+            case RenderMode.PRESSURE: {
+              const p = pressure[idx];
+              const t = clamp((p + 1.0) * 0.5, 0.0, 1.0);
+              pixels32[idx] = lut32[(t * 255) | 0];
+              break;
+            }
+
+            case RenderMode.DIVERGENCE: {
+              const div = Math.abs(divergence[idx]);
+              const t = clamp(div * 5.0, 0.0, 1.0);
+              pixels32[idx] = lut32[(t * 255) | 0];
+              break;
+            }
+
+            default: {
+              const d = density[idx];
+              const t = clamp(d * invDensityScale, 0.0, 1.0);
+              pixels32[idx] = lut32[(t * 255) | 0];
+              break;
+            }
           }
         }
+      }
+    } else {
+      // 8-bit fallback path for mock or custom environments
+      const lut = getPaletteLUT(colorPalette);
+      let pixelOffset = 0;
 
-        pixels[pixelOffset] = r;
-        pixels[pixelOffset + 1] = g;
-        pixels[pixelOffset + 2] = b;
-        pixels[pixelOffset + 3] = a;
-        pixelOffset += 4;
+      for (let y = 0; y < gridHeight; y++) {
+        const row = y * gridWidth;
+        for (let x = 0; x < gridWidth; x++) {
+          const idx = row + x;
+
+          if (this.showObstacles && solid[idx] === 1) {
+            const isBorder = (x === 0 || x === gridWidth - 1 || y === 0 || y === gridHeight - 1);
+            const col = isBorder ? this.boundaryWallColor : this.obstacleColor;
+            pixels[pixelOffset] = col[0];
+            pixels[pixelOffset + 1] = col[1];
+            pixels[pixelOffset + 2] = col[2];
+            pixels[pixelOffset + 3] = col[3];
+            pixelOffset += 4;
+            continue;
+          }
+
+          let r = 0;
+          let g = 0;
+          let b = 0;
+          let a = 255;
+
+          switch (renderMode) {
+            case RenderMode.DENSITY: {
+              const d = density[idx];
+              const t = clamp(d * invDensityScale, 0.0, 1.0);
+              const lutOffset = ((t * 255) | 0) * 4;
+              r = lut[lutOffset];
+              g = lut[lutOffset + 1];
+              b = lut[lutOffset + 2];
+              break;
+            }
+
+            case RenderMode.VELOCITY: {
+              const velU = u[idx];
+              const velV = v[idx];
+              const speed = Math.hypot(velU, velV);
+              const t = clamp(speed * invSpeedScale, 0.0, 1.0);
+              const lutOffset = ((t * 255) | 0) * 4;
+              r = lut[lutOffset];
+              g = lut[lutOffset + 1];
+              b = lut[lutOffset + 2];
+              break;
+            }
+
+            case RenderMode.DIRECTION: {
+              const velU = u[idx];
+              const velV = v[idx];
+              const speed = Math.hypot(velU, velV);
+              if (speed < 0.01) {
+                r = 10; g = 12; b = 18;
+              } else {
+                const angle = Math.atan2(velV, velU);
+                const hue = (angle + Math.PI) * invTwoPi;
+                const val = clamp(speed * invSpeedScale, 0.2, 1.0);
+                const rgb = hsvToRgb(hue, 0.95, val);
+                r = rgb[0];
+                g = rgb[1];
+                b = rgb[2];
+              }
+              break;
+            }
+
+            case RenderMode.PRESSURE: {
+              const p = pressure[idx];
+              const t = clamp((p + 1.0) * 0.5, 0.0, 1.0);
+              const lutOffset = ((t * 255) | 0) * 4;
+              r = lut[lutOffset];
+              g = lut[lutOffset + 1];
+              b = lut[lutOffset + 2];
+              break;
+            }
+
+            case RenderMode.DIVERGENCE: {
+              const div = Math.abs(divergence[idx]);
+              const t = clamp(div * 5.0, 0.0, 1.0);
+              const lutOffset = ((t * 255) | 0) * 4;
+              r = lut[lutOffset];
+              g = lut[lutOffset + 1];
+              b = lut[lutOffset + 2];
+              break;
+            }
+
+            default: {
+              const d = density[idx];
+              const t = clamp(d * invDensityScale, 0.0, 1.0);
+              const lutOffset = ((t * 255) | 0) * 4;
+              r = lut[lutOffset];
+              g = lut[lutOffset + 1];
+              b = lut[lutOffset + 2];
+              break;
+            }
+          }
+
+          pixels[pixelOffset] = r;
+          pixels[pixelOffset + 1] = g;
+          pixels[pixelOffset + 2] = b;
+          pixels[pixelOffset + 3] = a;
+          pixelOffset += 4;
+        }
       }
     }
 
@@ -428,11 +515,12 @@ export class FluidRenderer {
     }
 
     // 3. Draw scaled offscreen canvas onto primary canvas
+    // Note: Since offscreen canvas is completely opaque (alpha=255) and matches canvas dimensions,
+    // drawImage completely overwrites the target canvas area, avoiding redundant clearRect overhead.
     const { ctx, canvas } = this;
     if (!ctx) return;
 
     ctx.imageSmoothingEnabled = this.smoothScaling;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(this.offscreenCanvas, 0, 0, canvas.width, canvas.height);
 
     // 4. Render velocity vector arrows overlay if enabled
@@ -443,6 +531,8 @@ export class FluidRenderer {
 
   /**
    * Overlays discrete velocity vector arrows across the fluid grid.
+   * Batches arrow shafts into a single path and arrowheads into a single path
+   * to minimize canvas draw calls and state changes.
    * @private
    */
   _renderVelocityVectors(ctx, canvasW, canvasH, u, v, solid) {
@@ -456,6 +546,10 @@ export class FluidRenderer {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
     ctx.lineWidth = Math.max(1, canvasW / 400);
 
+    // Batch 1: All arrow stems drawn in one continuous path
+    let hasVectors = false;
+    ctx.beginPath();
+
     for (let y = vectorSpacing; y < gridHeight - 1; y += vectorSpacing) {
       const row = y * gridWidth;
       for (let x = vectorSpacing; x < gridWidth - 1; x += vectorSpacing) {
@@ -467,10 +561,10 @@ export class FluidRenderer {
         const speed = Math.hypot(velU, velV);
         if (speed < 0.2) continue;
 
+        hasVectors = true;
         const centerX = (x + 0.5) * cellW;
         const centerY = (y + 0.5) * cellH;
 
-        // Scale length proportionally to speed, bounded by maxArrowLen
         const length = Math.min(maxArrowLen, (speed / maxSpeedScale) * maxArrowLen * vectorScale * 2.0);
         const dirX = velU / speed;
         const dirY = velV / speed;
@@ -478,24 +572,48 @@ export class FluidRenderer {
         const endX = centerX + dirX * length;
         const endY = centerY + dirY * length;
 
-        // Arrow stem
-        ctx.beginPath();
         ctx.moveTo(centerX, centerY);
         ctx.lineTo(endX, endY);
-        ctx.stroke();
-
-        // Arrowhead
-        const headSize = Math.max(3, length * 0.3);
-        const perpX = -dirY * headSize * 0.5;
-        const perpY = dirX * headSize * 0.5;
-
-        ctx.beginPath();
-        ctx.moveTo(endX, endY);
-        ctx.lineTo(endX - dirX * headSize + perpX, endY - dirY * headSize + perpY);
-        ctx.lineTo(endX - dirX * headSize - perpX, endY - dirY * headSize - perpY);
-        ctx.closePath();
-        ctx.fill();
       }
+    }
+
+    if (hasVectors) {
+      ctx.stroke();
+
+      // Batch 2: All arrowheads drawn in one continuous path and filled once
+      ctx.beginPath();
+      for (let y = vectorSpacing; y < gridHeight - 1; y += vectorSpacing) {
+        const row = y * gridWidth;
+        for (let x = vectorSpacing; x < gridWidth - 1; x += vectorSpacing) {
+          const idx = row + x;
+          if (solid[idx] === 1) continue;
+
+          const velU = u[idx];
+          const velV = v[idx];
+          const speed = Math.hypot(velU, velV);
+          if (speed < 0.2) continue;
+
+          const centerX = (x + 0.5) * cellW;
+          const centerY = (y + 0.5) * cellH;
+
+          const length = Math.min(maxArrowLen, (speed / maxSpeedScale) * maxArrowLen * vectorScale * 2.0);
+          const dirX = velU / speed;
+          const dirY = velV / speed;
+
+          const endX = centerX + dirX * length;
+          const endY = centerY + dirY * length;
+
+          const headSize = Math.max(3, length * 0.3);
+          const perpX = -dirY * headSize * 0.5;
+          const perpY = dirX * headSize * 0.5;
+
+          ctx.moveTo(endX, endY);
+          ctx.lineTo(endX - dirX * headSize + perpX, endY - dirY * headSize + perpY);
+          ctx.lineTo(endX - dirX * headSize - perpX, endY - dirY * headSize - perpY);
+          ctx.closePath();
+        }
+      }
+      ctx.fill();
     }
 
     ctx.restore();
