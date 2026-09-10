@@ -23,8 +23,8 @@ export class BoundaryConditions {
     const isFreeSlip = type === BoundaryType.FREE_SLIP;
 
     // 1. Domain Borders
-    // Left (x = 0) & Right (x = width - 1) boundaries
-    for (let y = 0; y < height; y++) {
+    // Left (x = 0) & Right (x = width - 1) boundaries (non-corner cells)
+    for (let y = 1; y < height - 1; y++) {
       const leftIdx = y * width;
       const leftNeighborIdx = leftIdx + 1;
       u[leftIdx] = 0; // No normal velocity through wall
@@ -36,8 +36,8 @@ export class BoundaryConditions {
       v[rightIdx] = isFreeSlip ? v[rightNeighborIdx] : -v[rightNeighborIdx];
     }
 
-    // Top (y = 0) & Bottom (y = height - 1) boundaries
-    for (let x = 0; x < width; x++) {
+    // Top (y = 0) & Bottom (y = height - 1) boundaries (non-corner cells)
+    for (let x = 1; x < width - 1; x++) {
       const topIdx = x;
       const topNeighborIdx = x + width;
       v[topIdx] = 0; // No normal velocity through wall
@@ -49,20 +49,21 @@ export class BoundaryConditions {
       u[btmIdx] = isFreeSlip ? u[btmNeighborIdx] : -u[btmNeighborIdx];
     }
 
-    // Corners (average adjacent boundaries)
-    u[0] = 0.5 * (u[1] + u[width]);
-    v[0] = 0.5 * (v[1] + v[width]);
+    // Corners (both normal velocities must strictly be zero)
+    u[0] = 0;
+    v[0] = 0;
 
-    u[width - 1] = 0.5 * (u[width - 2] + u[2 * width - 1]);
-    v[width - 1] = 0.5 * (v[width - 2] + v[2 * width - 1]);
+    const topRight = width - 1;
+    u[topRight] = 0;
+    v[topRight] = 0;
 
     const btmLeft = (height - 1) * width;
-    u[btmLeft] = 0.5 * (u[btmLeft + 1] + u[btmLeft - width]);
-    v[btmLeft] = 0.5 * (v[btmLeft + 1] + v[btmLeft - width]);
+    u[btmLeft] = 0;
+    v[btmLeft] = 0;
 
     const btmRight = height * width - 1;
-    u[btmRight] = 0.5 * (u[btmRight - 1] + u[btmRight - width]);
-    v[btmRight] = 0.5 * (v[btmRight - 1] + v[btmRight - width]);
+    u[btmRight] = 0;
+    v[btmRight] = 0;
 
     // 2. Arbitrary Internal Solid Obstacles
     for (let y = 1; y < height - 1; y++) {
@@ -135,20 +136,12 @@ export class BoundaryConditions {
     field[(height - 1) * width] = 0.5 * (field[(height - 1) * width + 1] + field[(height - 2) * width]);
     field[width * height - 1] = 0.5 * (field[width * height - 2] + field[width * (height - 1) - 1]);
 
-    // Solid obstacle cells: set value to average of neighboring fluid cells
+    // Solid obstacle cells: zero out inside solid obstacles
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const idx = x + y * width;
         if (solid[idx] === 1) {
-          let sum = 0;
-          let count = 0;
-
-          if (solid[idx - 1] === 0) { sum += field[idx - 1]; count++; }
-          if (solid[idx + 1] === 0) { sum += field[idx + 1]; count++; }
-          if (solid[idx - width] === 0) { sum += field[idx - width]; count++; }
-          if (solid[idx + width] === 0) { sum += field[idx + width]; count++; }
-
-          field[idx] = count > 0 ? sum / count : 0;
+          field[idx] = 0;
         }
       }
     }
