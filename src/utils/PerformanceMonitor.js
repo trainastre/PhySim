@@ -39,8 +39,8 @@ export class PerformanceMonitor {
     this.cpuLoadPercent = 0;
 
     // Timers
-    this._lastFrameStart = 0;
-    this._currentFrameStart = 0;
+    this._lastFrameStart = null;
+    this._currentFrameStart = null;
     this._simStart = 0;
     this._renderStart = 0;
     this._userTimingAvailable = typeof performance !== 'undefined' &&
@@ -72,7 +72,7 @@ export class PerformanceMonitor {
   beginFrame(timestamp) {
     const now = timestamp ?? (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-    if (this._currentFrameStart > 0) {
+    if (this._currentFrameStart !== null) {
       // Calculate delta from start of previous frame to start of this frame
       const frameDelta = now - this._currentFrameStart;
       if (frameDelta > 0 && frameDelta < 1000) {
@@ -278,8 +278,8 @@ export class PerformanceMonitor {
     this.simTime = 0;
     this.renderTime = 0;
     this.cpuLoadPercent = 0;
-    this._currentFrameStart = 0;
-    this._lastFrameStart = 0;
+    this._currentFrameStart = null;
+    this._lastFrameStart = null;
   }
 
   /**
