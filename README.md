@@ -19,6 +19,7 @@ PhySim is a high-performance, modular 2D fluid dynamics engine implemented in Ja
 * **Interactive Web Interface**:
   * Sliders for modifying core parameters instantly (Viscosity, Gravity / Buoyancy, Density Dissipation, Diffusion, Vorticity, Solver Iterations).
   * Direct mouse and multi-touch gestures (Pointer Events) to draw fluid, inject momentum impulses, or build solid obstacles.
+  * Dynamic drag speed force scaling: faster dragging applies proportionally larger velocity force vectors with zero-lag response.
   * Built-in physics presets: Smoke Plume, Karman Vortex Street, Swirling Vortices, Zero-G Expansion.
 * **Decoupled Engine Architecture**: Fully headless core engine with zero mandatory DOM dependencies. Compatible with Node.js, Web Workers, and browser environments.
 
@@ -41,6 +42,7 @@ PhySim/
 │   │   └── index.js                 # Renderer exports
 │   ├── ui/
 │   │   ├── app.js                   # Web application controller, event listeners & presets
+│   │   ├── PointerController.js     # Responsive mouse, touch & pointer interaction controller
 │   │   └── style.css                # Responsive glassmorphic layout & viewport styling
 │   └── utils/
 │       └── MathUtils.js             # Clamping, lerp, and bilinear sampling
@@ -48,6 +50,7 @@ PhySim/
 │   ├── FluidSolver.test.js          # Numerical stability, convergence, and field tests
 │   ├── BoundaryConditions.test.js   # Wall restriction, obstacle collision tests
 │   ├── FluidRenderer.test.js        # Rendering pipeline, color mapping, and scaling tests
+│   ├── PointerController.test.js    # Mouse & multi-touch pointer gesture and drag speed tests
 │   └── run-tests.js                 # Node.js standalone test runner
 ├── tests/
 │   └── test_physim.py               # Python/pytest test integration

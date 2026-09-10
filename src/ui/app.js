@@ -1,6 +1,7 @@
 import { FluidSimulation } from '../core/FluidSimulation.js';
 import { FluidRenderer, RenderMode } from '../rendering/FluidRenderer.js';
 import { ColorPalette } from '../rendering/ColorMaps.js';
+import { PointerController } from './PointerController.js';
 
 /**
  * PhySim Web Application Controller.
@@ -39,9 +40,19 @@ export class PhySimApp {
     // Application state
     this.isRunning = true;
     this.activeTool = 'fluid'; // 'fluid' | 'velocity' | 'obstacle' | 'erase'
-    this.isPointerDown = false;
-    this.prevPointerPos = null;
     this.brushRadius = 3.5;
+
+    // Interactive Mouse and Touch Pointer Controller
+    this.pointerController = new PointerController({
+      canvas: this.canvas,
+      simulation: this.sim,
+      renderer: this.renderer,
+      activeTool: this.activeTool,
+      brushRadius: this.brushRadius,
+      forceScale: 0.8,
+      densityAmount: 60.0,
+      interpolate: true,
+    });
 
     // Diagnostics & FPS tracking
     this.lastFrameTime = performance.now();
@@ -52,7 +63,6 @@ export class PhySimApp {
     // Setup bindings
     this.initUIElements();
     this.bindControlEvents();
-    this.bindPointerEvents();
     this.handleViewportResize();
 
     // Load initial scene
@@ -61,6 +71,10 @@ export class PhySimApp {
     // Start simulation loop
     window.addEventListener('resize', () => this.handleViewportResize());
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  get isPointerDown() {
+    return this.pointerController ? this.pointerController.isPointerDown : false;
   }
 
   /**
@@ -115,7 +129,7 @@ export class PhySimApp {
    * Binds UI control events for instant parameter updates.
    */
   bindControlEvents() {
-    const { ui, sim, renderer } = this;
+    const { ui, sim, renderer, pointerController } = this;
 
     // 1. Viscosity slider
     if (ui.viscositySlider) {
@@ -201,6 +215,9 @@ export class PhySimApp {
       radio.addEventListener('change', (e) => {
         if (e.target.checked) {
           this.activeTool = e.target.value;
+          if (pointerController) {
+            pointerController.setActiveTool(e.target.value);
+          }
         }
       });
     });
@@ -240,86 +257,11 @@ export class PhySimApp {
   }
 
   /**
-   * Attaches pointer events (Mouse / Touch) for fluid and obstacle manipulation.
-   */
-  bindPointerEvents() {
-    const { canvas } = this;
-
-    const onPointerDown = (e) => {
-      this.isPointerDown = true;
-      try {
-        canvas.setPointerCapture(e.pointerId);
-      } catch {
-        // Fallback for mock/older browsers
-      }
-
-      const gridPos = this.renderer.clientToGrid(e.clientX, e.clientY);
-      this.prevPointerPos = gridPos;
-      this.applyInteraction(gridPos.x, gridPos.y, 0, 0);
-    };
-
-    const onPointerMove = (e) => {
-      if (!this.isPointerDown) return;
-
-      const gridPos = this.renderer.clientToGrid(e.clientX, e.clientY);
-      const deltaX = this.prevPointerPos ? (gridPos.x - this.prevPointerPos.x) * 15.0 : 0;
-      const deltaY = this.prevPointerPos ? (gridPos.y - this.prevPointerPos.y) * 15.0 : 0;
-
-      this.applyInteraction(gridPos.x, gridPos.y, deltaX, deltaY);
-      this.prevPointerPos = gridPos;
-    };
-
-    const onPointerUp = (e) => {
-      this.isPointerDown = false;
-      this.prevPointerPos = null;
-      try {
-        canvas.releasePointerCapture(e.pointerId);
-      } catch {
-        // Fallback
-      }
-    };
-
-    canvas.addEventListener('pointerdown', onPointerDown);
-    canvas.addEventListener('pointermove', onPointerMove);
-    canvas.addEventListener('pointerup', onPointerUp);
-    canvas.addEventListener('pointercancel', onPointerUp);
-  }
-
-  /**
-   * Applies active user interaction onto simulation grid.
+   * Directly applies user interaction to simulation.
    */
   applyInteraction(gx, gy, deltaX, deltaY) {
-    const { sim, activeTool, brushRadius } = this;
-
-    switch (activeTool) {
-      case 'fluid': {
-        // Inject density and directional velocity impulse
-        sim.addDensitySplat(gx, gy, brushRadius, 60.0);
-        if (Math.hypot(deltaX, deltaY) > 0.1) {
-          sim.addVelocityImpulse(gx, gy, brushRadius, deltaX, deltaY);
-        }
-        break;
-      }
-
-      case 'velocity': {
-        // Push fluid with impulse only (no new dye)
-        if (Math.hypot(deltaX, deltaY) > 0.1) {
-          sim.addVelocityImpulse(gx, gy, brushRadius, deltaX * 1.5, deltaY * 1.5);
-        }
-        break;
-      }
-
-      case 'obstacle': {
-        // Paint solid circular obstacle
-        sim.setObstacleCircle(gx, gy, Math.max(1.5, brushRadius * 0.8), true);
-        break;
-      }
-
-      case 'erase': {
-        // Erase solid obstacle
-        sim.setObstacleCircle(gx, gy, Math.max(1.5, brushRadius * 0.8), false);
-        break;
-      }
+    if (this.pointerController) {
+      this.pointerController.applyInteraction(gx, gy, deltaX, deltaY);
     }
   }
 

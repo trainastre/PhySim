@@ -12,3 +12,4 @@ export { clamp, lerp, bilinearSample } from './utils/MathUtils.js';
 
 export { FluidRenderer, RenderMode } from './rendering/FluidRenderer.js';
 export { ColorPalette, sampleColorMap, getPaletteLUT, hsvToRgb } from './rendering/ColorMaps.js';
+export { PointerController } from './ui/PointerController.js';

@@ -52,3 +52,25 @@ def test_responsive_css():
 
     assert "@media" in content, "CSS must include media queries for responsive viewports"
     assert "touch-action: none" in content, "Canvas must have touch-action: none for touch devices"
+
+def test_interactive_mouse_touch_controls():
+    """Verifies that interactive mouse and touch controls and coordinate mappings are implemented."""
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pointer_file = os.path.join(project_dir, "src", "ui", "PointerController.js")
+    assert os.path.exists(pointer_file), "PointerController.js must exist"
+
+    with open(pointer_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Verify pointer / touch events
+    assert "pointerdown" in content, "Must listen for pointerdown"
+    assert "pointermove" in content, "Must listen for pointermove"
+    assert "touchstart" in content, "Must listen for touchstart"
+    assert "touchmove" in content, "Must listen for touchmove"
+
+    # Verify coordinate mapping to canvas space
+    assert "clientToCanvas" in content, "Must implement clientToCanvas"
+
+    # Verify dragging speed determines force vector magnitude
+    assert "speed" in content, "Must calculate pointer dragging speed"
+    assert "forceMagnitude" in content, "Must determine force magnitude from drag speed"
