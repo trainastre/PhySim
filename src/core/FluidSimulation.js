@@ -16,6 +16,7 @@ export class FluidSimulation {
    * @param {number} [options.cellSize=1.0] - Cell size (dx).
    * @param {number} [options.viscosity=0.0001] - Kinematic viscosity.
    * @param {number} [options.diffusion=0.00001] - Density diffusion rate.
+   * @param {number} [options.densityDissipation=0.0] - Density dissipation rate.
    * @param {number} [options.solverIterations=25] - Relaxation iterations for Poisson solver.
    * @param {string} [options.boundaryType=BoundaryType.FREE_SLIP] - Boundary condition mode.
    * @param {number} [options.gravityX=0.0] - External gravity in X direction.
@@ -31,6 +32,7 @@ export class FluidSimulation {
     this.solver = new FluidSolver(this.grid, {
       viscosity: options.viscosity ?? 0.0001,
       diffusion: options.diffusion ?? 0.00001,
+      densityDissipation: options.densityDissipation ?? 0.0,
       iterations: options.solverIterations ?? 25,
       boundaryType: options.boundaryType ?? BoundaryType.FREE_SLIP,
       gravityX: options.gravityX ?? 0.0,
@@ -40,6 +42,72 @@ export class FluidSimulation {
 
     this.time = 0.0;
     this.stepCount = 0;
+  }
+
+  // --- Dynamic Simulation Parameter Accessors (Instant updates) ---
+
+  get viscosity() {
+    return this.solver.viscosity;
+  }
+
+  set viscosity(val) {
+    this.solver.viscosity = Math.max(0, Number(val));
+  }
+
+  get diffusion() {
+    return this.solver.diffusion;
+  }
+
+  set diffusion(val) {
+    this.solver.diffusion = Math.max(0, Number(val));
+  }
+
+  get densityDissipation() {
+    return this.solver.densityDissipation;
+  }
+
+  set densityDissipation(val) {
+    this.solver.densityDissipation = Math.max(0, Number(val));
+  }
+
+  get gravityX() {
+    return this.solver.gravityX;
+  }
+
+  set gravityX(val) {
+    this.solver.gravityX = Number(val);
+  }
+
+  get gravityY() {
+    return this.solver.gravityY;
+  }
+
+  set gravityY(val) {
+    this.solver.gravityY = Number(val);
+  }
+
+  get vorticityStrength() {
+    return this.solver.vorticityStrength;
+  }
+
+  set vorticityStrength(val) {
+    this.solver.vorticityStrength = Math.max(0, Number(val));
+  }
+
+  get solverIterations() {
+    return this.solver.iterations;
+  }
+
+  set solverIterations(val) {
+    this.solver.iterations = Math.max(1, Math.round(Number(val)));
+  }
+
+  get boundaryType() {
+    return this.solver.boundaryType;
+  }
+
+  set boundaryType(val) {
+    this.solver.boundaryType = val;
   }
 
   /**
